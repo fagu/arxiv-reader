@@ -1,0 +1,5 @@
+*~
+update.xml
+articles/*/*.pdf
+articles/*/*.tar.gz
+db.sqlite

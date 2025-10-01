@@ -1,0 +1,50 @@
+# Please specify here a list of all categories to subscribe to.
+# See https://arxiv.org/category_taxonomy for a list of all categories.
+
+# You can also specify an entire archive such as "math" or "astro-ph",
+# or even subscribe to all of arxiv with "", but this is generally not recommended:
+# The download takes multiple hours, require several gigabytes of memory, and makes
+# later invocations of arxiv-reader take several seconds as we inefficiently go through all
+# articles.
+
+#categories = ["math.NT"]
+
+
+[filters]
+# Only show new articles matching the following criteria (mandatory).
+# Replace the date after first_version_encountered_after by the day you want to start
+# reading new articles with this program, but no earlier than one day after first running
+# `arxiv-reader pull`.
+#new = "category math.NT && first_version_encountered_after 2025-10-03"
+
+# Only show updates (new versions, journal info, ...) for articles also matching the
+# following criteria.
+update = "bookmarked"
+
+
+[hooks]
+# pre_pull will be run by `arxiv-reader pull` before retrieving article metadata updates
+# from the arxiv servers.
+# push will be run at the end of `arxiv-reader news`.
+
+# If you would like to keep your data (which articles are bookmarked, notes, ...)
+# in a git repository, run `git init` in the arxiv reader directory and uncomment
+# the following two lines.
+#pre_pull = "git pull"
+#push = "git add . && git diff-index --quiet HEAD || (git status && git commit -m 'push' && git push)"
+
+
+# Things to highlight in `arxiv-reader news' (optional).
+[highlight]
+#categories = ["math.NT"]
+
+# The same author may sometimes be referred to in different ways, such as "C. F. Gauss", "Gauss, Carl-Friedrich", ...
+# The search is literal, so you might have to specify different spellings.
+# Accents are latex encoded and strings are escaped, so for example "ä" must be written as "\\\"a".
+#authors = ["C. F. Gauss"]
+
+#acm_classes = [""]
+
+#msc_classes = ["11R32", "11N"]
+
+#keywords = ["twin prime"]
