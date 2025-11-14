@@ -446,6 +446,10 @@ fn inner_main() -> anyhow::Result<()> {
         Commands::Init => {
             let base_dir = get_base_dir()?;
 
+            if !base_dir.is_dir() {
+                bail!("{:?} is not a directory.", base_dir);
+            }
+
             // Create $BASE_DIR/articles and $BASE_DIR/bookmarks if necessary.
             let dir = base_dir.join("articles");
             create_dir(&dir).with_context(|| format!("creating {dir:?}"))?;
