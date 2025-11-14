@@ -15,6 +15,7 @@
 # Replace the date after first_version_encountered_after by the day you want to start
 # reading new articles with this program, but no earlier than one day after first running
 # `arxiv-reader pull`.
+# See `arxiv-reader help find` to learn about possible filters.
 #new = "category math.NT && first_version_encountered_after 2025-10-03"
 
 # Only show updates (new versions, journal info, ...) for articles also matching the

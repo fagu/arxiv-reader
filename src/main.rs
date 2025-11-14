@@ -111,7 +111,56 @@ struct Filters {
     #[arg(conflicts_with = "id", value_hint = clap::ValueHint::Other)]
     word: Vec<String>,
     /// Find bookmarked articles satisfying these conditions.
-    #[arg(short, long, conflicts_with = "id", value_hint = clap::ValueHint::Other)]
+    ///
+    /// You can use the following types of conditions and combine them with logical operators: && || !
+    /// Strings can be unquoted or quoted with '' or "".
+    ///
+    ///   id id1 id2 ...
+    ///       matches articles with the given arXiv identifiers
+    ///
+    ///   primary_category math.NT
+    ///       matches articles with primary category math.NT
+    ///
+    ///   category math.NT
+    ///       matches articles with primary or secondary (cross-list) category math.NT
+    ///
+    ///   first_version_encountered_after 2025-10-01
+    ///       matches articles that were first downloaded on or after 2025-10-01 with `arxiv-reader pull`
+    ///
+    ///   first_version_submitted_after 2025-10-01
+    ///       matches articles that were first submitted on or after 2025-10-01
+    ///
+    ///   title word1 word2 ...
+    ///       matches articles whose title contains the given strings (case-insensitive)
+    ///
+    ///   author name1 name2 ...
+    ///       matches articles whose authors include the given names
+    ///       Note:
+    ///         The same author may sometimes be referred to in different ways, such as "C. F. Gauss", "Gauss, Carl-Friedrich", ...
+    ///         The search is literal, so you might have to specify different spellings.
+    ///         Accents are latex encoded. Remember to escape quotes and backslashes.
+    ///
+    ///   acm 11R32
+    ///       matches articles with this acm class
+    ///
+    ///   msc 11R32
+    ///       matches articles with this msc class
+    ///
+    ///   abstract word1 word2 ...
+    ///       matches articles whose abstract contains the given strings (case-insensitive)
+    ///
+    ///   comments word1 word2 ...
+    ///       matches articles whose comments contain the given strings (case-insensitive)
+    ///
+    ///   bookmarked
+    ///       matches bookmarked articles
+    ///
+    ///   seen
+    ///       matches articles marked as seen by `arxiv-reader news`
+    ///
+    ///   notes word1 word2 ...
+    ///       matches articles whose notes contain the given strings (case-insensitive)
+    #[arg(short, long, conflicts_with = "id", value_hint = clap::ValueHint::Other, verbatim_doc_comment)]
     filter: Option<Filter>,
 }
 
@@ -428,7 +477,9 @@ fn inner_main() -> anyhow::Result<()> {
 
             println!("Now, please edit the configuration file at {config_filename:?}.");
             println!();
-            println!("Then, run `arxiv-reader pull` to download articles from the specified categories.");
+            println!(
+                "Then, run `arxiv-reader pull` to download articles from the specified categories."
+            );
             println!(
                 "Look at new articles with `arxiv-reader news` and find articles with `arxiv-reader find`."
             );
