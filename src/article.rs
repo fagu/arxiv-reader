@@ -771,12 +771,25 @@ impl Article {
 
     /// Prints article metadata, bookmarks, and notes.
     /// `show_updates` specifies whether we should highlight unseen versions, journal refs, etc.
-    pub fn print(&self, highlight: &Highlight, show_updates: bool) {
+    pub fn print(&self, highlight: &Highlight, show_updates: bool, latex_to_unicode: bool) {
         let bold_if_updated = |cond: bool, s: &str| {
             if cond && show_updates {
-                println!("{}{}{}", termion::color::LightRed.fg_str(), s, termion::color::Reset.fg_str());
+                println!(
+                    "{}{}{}",
+                    termion::color::LightRed.fg_str(),
+                    s,
+                    termion::color::Reset.fg_str()
+                );
             } else {
                 println!("{}", s);
+            }
+        };
+
+        let to_unicode = |text: &str| -> String {
+            if latex_to_unicode {
+                unicodeit::replace(text)
+            } else {
+                text.to_string()
             }
         };
 
@@ -795,18 +808,23 @@ impl Article {
         println!();
         println!(
             "Title: {}",
-            highlight_matches(self.title(), true, &highlight.keywords)
+            highlight_matches(&to_unicode(self.title()), true, &highlight.keywords)
         );
         println!(
             "Authors: {}",
-            highlight_matches(self.authors(), false, &highlight.authors)
+            highlight_matches(&to_unicode(self.authors()), false, &highlight.authors)
         );
         println!(
             "Categories: {}",
             self.categories()
                 .iter()
                 .map(|c| if highlight.categories.contains(c) {
-                    format!("{}{}{}", termion::color::LightRed.fg_str(), c, termion::color::Reset.fg_str())
+                    format!(
+                        "{}{}{}",
+                        termion::color::LightRed.fg_str(),
+                        c,
+                        termion::color::Reset.fg_str()
+                    )
                 } else {
                     c.to_string()
                 })
@@ -816,7 +834,7 @@ impl Article {
         if let Some(comments) = self.comments() {
             println!(
                 "Comments: {}",
-                highlight_matches(comments, true, &highlight.keywords)
+                highlight_matches(&to_unicode(comments), true, &highlight.keywords)
             );
         }
         if let Some(acm_classes) = self.acm_classes() {
@@ -843,7 +861,7 @@ impl Article {
         println!();
         println!(
             "{}",
-            highlight_matches(self.abstract_(), true, &highlight.keywords)
+            highlight_matches(&to_unicode(self.abstract_()), true, &highlight.keywords)
         );
         println!();
         println!("------------------------------------------------------------------");

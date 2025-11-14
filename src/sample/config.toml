@@ -9,6 +9,8 @@
 
 #categories = ["math.NT"]
 
+# Whether we should try to display latex as unicode by default.
+latex_to_unicode = true
 
 [filters]
 # Only show new articles matching the following criteria (mandatory).

@@ -30,6 +30,7 @@ pub fn interact(
     base_dir: &Path,
     conn: &Transaction,
     highlight: &Highlight,
+    latex_to_unicode: bool,
     client: &mut Client,
     filter: &Filter,
     update_filter: Option<&Filter>,
@@ -113,6 +114,7 @@ pub fn interact(
             return Ok(());
         }
     };
+    let mut latex_to_unicode = latex_to_unicode;
     let mut error_message = String::new();
 
     let screen = stdout().into_raw_mode()?.into_alternate_screen()?;
@@ -185,7 +187,7 @@ pub fn interact(
         println!();
 
         // Print the article.
-        article.print(highlight, show_updates);
+        article.print(highlight, show_updates, latex_to_unicode);
 
         // Print list of keyboard shortcuts.
         println!();
@@ -196,6 +198,7 @@ pub fn interact(
             "[d] open directory",
             "[n] edit notes",
             "[b] toggle bookmark",
+            "[u] turn on/off latex-to-unicode",
             "[RIGHT] next article",
             "[LEFT] previous article",
         ];
@@ -313,6 +316,10 @@ pub fn interact(
                 // Toggle bookmark state.
                 article.toggle_bookmark(base_dir)?;
                 error_message = String::new();
+            }
+            Key::Char('u') => {
+                // Toggle latex-to-unicode.
+                latex_to_unicode = !latex_to_unicode;
             }
             Key::End if update_filter.is_none() => {
                 state = Current::Read(seen.len() - 1);
