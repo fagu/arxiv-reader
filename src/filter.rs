@@ -3,6 +3,8 @@ use std::{collections::VecDeque, str::FromStr};
 
 use serde::Deserialize;
 
+use crate::config::TagName;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Filter {
     PrimaryCategoryIs(String),
@@ -17,6 +19,7 @@ pub enum Filter {
     Comments(String),
     Bookmarked,
     Seen,
+    Tag(TagName),
     Notes(String),
     Any(String),
     Not(Box<Filter>),
@@ -43,6 +46,7 @@ impl Filter {
             Filter::Comments(word) => article.comments().is_some_and(|c| c.to_ascii_lowercase().contains(&word.to_ascii_lowercase())),
             Filter::Bookmarked => article.is_bookmarked(),
             Filter::Seen => article.last_seen_version() > 0,
+            Filter::Tag(tag) => article.tags().contains(tag),
             Filter::Notes(pattern) => article.notes().is_some_and(|c| c.to_ascii_lowercase().contains(&pattern.to_ascii_lowercase())),
             Filter::Any(word) => {
                 article.categories().contains(word)
@@ -178,13 +182,13 @@ fn acm_or_msc_class(input: &mut VecDeque<SpannedToken>) -> anyhow::Result<String
     })
 }
 
-fn fold_and(cond: impl Fn(String) -> Filter, params: Vec<String>) -> Filter {
+fn fold_and<T>(cond: impl Fn(T) -> Filter, params: Vec<T>) -> Filter {
     params.into_iter().fold(Filter::True, |res, s| {
         Filter::And(Box::new(res), Box::new(cond(s)))
     })
 }
 
-fn fold_or(cond: impl Fn(String) -> Filter, params: Vec<String>) -> Filter {
+fn fold_or<T>(cond: impl Fn(T) -> Filter, params: Vec<T>) -> Filter {
     params.into_iter().fold(Filter::True, |res, s| {
         Filter::Or(Box::new(res), Box::new(cond(s)))
     })
@@ -210,6 +214,7 @@ fn term(input: &mut VecDeque<SpannedToken>) -> anyhow::Result<Filter> {
                 "comments" => Some(fold_and(Filter::Comments, one_or_more_strings(input)?)),
                 "bookmarked" => Some(Filter::Bookmarked),
                 "seen" => Some(Filter::Seen),
+                "tag" => Some(fold_and(Filter::Tag, one_or_more_strings(input)?.iter().map(|s| s.parse::<TagName>()).collect::<Result<_,_>>()?)),
                 "notes" => Some(fold_and(Filter::Notes, one_or_more_strings(input)?)),
                 "any" => Some(fold_and(Filter::Any, one_or_more_strings(input)?)),
                 "id" => Some(fold_or(Filter::Id, one_or_more_strings(input)?)),

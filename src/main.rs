@@ -21,7 +21,7 @@ use clap_complete::Shell;
 
 use crate::{
     article::{Article, ArxivId},
-    config::{Config, Highlight},
+    config::{Config, Highlight, TagName},
     filter::Filter,
     rate_limited_client::Client,
 };
@@ -74,6 +74,8 @@ enum BibtexCommand {
     Bookmark {
         #[arg(value_hint = clap::ValueHint::FilePath)]
         file: PathBuf,
+        #[arg(value_hint = clap::ValueHint::Other)]
+        tag_name: TagName,
     },
     /// Suggest updates to a bibtex file.
     Check {
@@ -157,6 +159,9 @@ struct Filters {
     ///
     ///   seen
     ///       matches articles marked as seen by `arxiv-reader news`
+    ///
+    ///   tag tag1 tag2 ...
+    ///       matches articles marked with all the given tags
     ///
     ///   notes word1 word2 ...
     ///       matches articles whose notes contain the given strings (case-insensitive)
@@ -278,7 +283,7 @@ fn inner_main() -> anyhow::Result<()> {
             // Upgrade the database version before making any requests.
             // This could also be done later, but it makes sense to me to do
             // it before making the first request.
-            db::with_transaction(&mut conn, |_| Ok(()))?;
+            db::with_transaction(&mut conn, &base_dir, |_| Ok(()))?;
             // Run the pre-pull command.
             if let Some(pre_pull) = &config.hooks.pre_pull {
                 println!("Running pre-pull command");
@@ -292,12 +297,12 @@ fn inner_main() -> anyhow::Result<()> {
                 }
             }
             // Update article metadata.
-            for categories in config.categories {
+            for categories in &config.categories {
                 println!("Getting records in category {categories}.");
                 oai::download_changes(&base_dir, &mut conn, &categories, &mut client)?;
             }
             // Download pdfs and sources for all bookmarked articles.
-            db::with_transaction(&mut conn, |tr| {
+            db::with_transaction(&mut conn, &base_dir, |tr| {
                 let articles = Article::load(&base_dir, &tr)?;
                 for article in articles.values() {
                     if article.is_bookmarked() {
@@ -318,7 +323,7 @@ fn inner_main() -> anyhow::Result<()> {
             show: do_,
         } => {
             let (base_dir, config, mut client) = prepare()?;
-            db::with_transaction(&mut db::open(&base_dir)?, |conn| {
+            db::with_transaction(&mut db::open(&base_dir)?, &base_dir, |conn| {
                 let mut filter = filters.get();
                 if let Order::Seen = sort_by {
                     filter = Filter::And(Box::new(filter), Box::new(Filter::Seen));
@@ -328,7 +333,7 @@ fn inner_main() -> anyhow::Result<()> {
                         &base_dir,
                         &conn,
                         &Highlight::default(),
-                        config.latex_to_unicode,
+                        &config,
                         &mut client,
                         &filter,
                         None,
@@ -416,12 +421,12 @@ fn inner_main() -> anyhow::Result<()> {
         }
         Commands::News { sort_by } => {
             let (base_dir, config, mut client) = prepare()?;
-            db::with_transaction(&mut db::open(&base_dir)?, |conn| {
+            db::with_transaction(&mut db::open(&base_dir)?, &base_dir, |conn| {
                 interact::interact(
                     &base_dir,
                     &conn,
                     &config.highlight,
-                    config.latex_to_unicode,
+                    &config,
                     &mut client,
                     &config.filters.new,
                     Some(&config.filters.update),
@@ -432,15 +437,15 @@ fn inner_main() -> anyhow::Result<()> {
             run_push_command(&base_dir, &config)?;
         }
         Commands::Bibtex(cmd) => match cmd {
-            BibtexCommand::Bookmark { file } => {
+            BibtexCommand::Bookmark { file, tag_name } => {
                 let (base_dir, _config, _client) = prepare()?;
-                db::with_transaction(&mut db::open(&base_dir)?, |conn| {
-                    bibtex::bookmark(&base_dir, &conn, &file)
+                db::with_transaction(&mut db::open(&base_dir)?, &base_dir, |conn| {
+                    bibtex::bookmark(&base_dir, &conn, &file, &tag_name)
                 })?
             }
             BibtexCommand::Check { file } => {
                 let (base_dir, _config, _client) = prepare()?;
-                db::with_transaction(&mut db::open(&base_dir)?, |conn| {
+                db::with_transaction(&mut db::open(&base_dir)?, &base_dir, |conn| {
                     bibtex::check(&base_dir, &conn, &file)
                 })?
             }
@@ -452,10 +457,8 @@ fn inner_main() -> anyhow::Result<()> {
                 bail!("{:?} is not a directory.", base_dir);
             }
 
-            // Create $BASE_DIR/articles and $BASE_DIR/bookmarks if necessary.
+            // Create $BASE_DIR/articles if necessary.
             let dir = base_dir.join("articles");
-            create_dir(&dir).with_context(|| format!("creating {dir:?}"))?;
-            let dir = base_dir.join("bookmarks");
             create_dir(&dir).with_context(|| format!("creating {dir:?}"))?;
 
             // Create the sample config file.
@@ -494,11 +497,11 @@ fn inner_main() -> anyhow::Result<()> {
         Commands::Database(cmd) => match cmd {
             DatabaseCommand::Dump => {
                 let (base_dir, _config, _client) = prepare()?;
-                db::with_transaction(&mut db::open(&base_dir)?, |conn| db::dump(&conn))?;
+                db::with_transaction(&mut db::open(&base_dir)?, &base_dir, |conn| db::dump(&conn))?;
             }
             DatabaseCommand::Load => {
                 let (base_dir, _config, _client) = prepare()?;
-                db::with_write_transaction(&mut db::open(&base_dir)?, db::load)?;
+                db::with_write_transaction(&mut db::open(&base_dir)?, &base_dir, db::load)?;
             }
         },
         Commands::GenerateCompletions { generator } => {

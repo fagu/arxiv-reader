@@ -9,9 +9,17 @@ use anyhow::{Context, bail};
 use biblatex::{Bibliography, Chunk};
 use rusqlite::Transaction;
 
-use crate::article::{Article, ArxivId};
+use crate::{
+    article::{Article, ArxivId},
+    config::TagName,
+};
 
-pub fn bookmark(base_dir: &Path, conn: &Transaction, file: &Path) -> anyhow::Result<()> {
+pub fn bookmark(
+    base_dir: &Path,
+    conn: &Transaction,
+    file: &Path,
+    tag_name: &TagName,
+) -> anyhow::Result<()> {
     // Parse the BibTeX file.
     let file = File::open(file).context("opening bibtex file")?;
     let mut reader = BufReader::new(file);
@@ -60,9 +68,9 @@ pub fn bookmark(base_dir: &Path, conn: &Transaction, file: &Path) -> anyhow::Res
             // If we know the article and haven't bookmarked it under this name,
             // create a bookmark.
             if let Some(article) = article {
-                if !article.bookmarks().contains(&key.into()) {
-                    println!("Adding bookmark named {key} for {id}.");
-                    article.set_bookmark(base_dir, &key.into())?;
+                if !article.tags().contains(tag_name) {
+                    println!("Adding bookmark for {id}.");
+                    article.set_tag(base_dir, tag_name)?;
                     println!();
                 }
             } else {
@@ -86,7 +94,7 @@ pub fn bookmark(base_dir: &Path, conn: &Transaction, file: &Path) -> anyhow::Res
             if !ids.is_empty()
                 && !ids
                     .iter()
-                    .any(|id| articles.get(id).unwrap().bookmarks().contains(&key.into()))
+                    .any(|id| articles.get(id).unwrap().tags().contains(tag_name))
             {
                 println!("Article https://doi.org/{doi}");
                 println!("  by {}", authors.join(" and "));
@@ -122,7 +130,7 @@ pub fn bookmark(base_dir: &Path, conn: &Transaction, file: &Path) -> anyhow::Res
                     let id = ids.get(i - 1).unwrap();
                     let article = articles.get_mut(id).unwrap();
                     println!("Adding bookmark named {key} for {id}.");
-                    article.set_bookmark(base_dir, &key.into())?;
+                    article.set_tag(base_dir, tag_name)?;
                 }
                 println!();
             }

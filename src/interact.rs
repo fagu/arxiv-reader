@@ -20,7 +20,7 @@ use termion::{
 use crate::{
     Order,
     article::{Article, ArxivId},
-    config::Highlight,
+    config::{Config, Highlight},
     filter::Filter,
     rate_limited_client::Client,
 };
@@ -49,7 +49,7 @@ pub fn interact(
     base_dir: &Path,
     conn: &Transaction,
     highlight: &Highlight,
-    latex_to_unicode: bool,
+    config: &Config,
     client: &mut Client,
     filter: &Filter,
     update_filter: Option<&Filter>,
@@ -133,7 +133,7 @@ pub fn interact(
             return Ok(());
         }
     };
-    let mut latex_to_unicode = latex_to_unicode;
+    let mut latex_to_unicode = config.latex_to_unicode;
     let mut error_message = String::new();
 
     init_panic_hook().context("initializing panic hook")?;
@@ -210,6 +210,20 @@ pub fn interact(
         article.print(highlight, show_updates, latex_to_unicode);
 
         // Print list of keyboard shortcuts.
+        let append_shortcut_lines = |shortcuts: Vec<String>, shortcut_lines: &mut Vec<String>| {
+            let mut current_line = String::new();
+            for shortcut in shortcuts.into_iter() {
+                if !current_line.is_empty() && current_line.len() + 2 + shortcut.len() > width {
+                    shortcut_lines.push(current_line.clone());
+                    current_line.clear();
+                }
+                current_line += &shortcut;
+                current_line += "; ";
+            }
+            if !current_line.is_empty() {
+                shortcut_lines.push(current_line.clone());
+            }
+        };
         println!();
         let mut shortcuts = vec![
             "[q] quit",
@@ -226,18 +240,17 @@ pub fn interact(
             shortcuts.extend(vec!["[END] last article", "[HOME] first article"]);
         }
         let mut shortcut_lines = Vec::new();
-        let mut current_line = String::new();
-        for shortcut in shortcuts.into_iter() {
-            if !current_line.is_empty() && current_line.len() + 2 + shortcut.len() > width {
-                shortcut_lines.push(current_line.clone());
-                current_line.clear();
-            }
-            current_line += shortcut;
-            current_line += "; ";
+        append_shortcut_lines(
+            shortcuts.into_iter().map(|s| s.to_string()).collect(),
+            &mut shortcut_lines,
+        );
+        shortcut_lines.push(String::new());
+        shortcut_lines.push("Toggle tags:".to_string());
+        let mut shortcuts = Vec::new();
+        for (shortcut, name) in &config.tags {
+            shortcuts.push(format!("[{}] {}", shortcut, name).to_string());
         }
-        if !current_line.is_empty() {
-            shortcut_lines.push(current_line.clone());
-        }
+        append_shortcut_lines(shortcuts, &mut shortcut_lines);
         write!(
             screen,
             "{}{}",
@@ -332,14 +345,10 @@ pub fn interact(
                 res?;
                 error_message = String::new();
             }
-            Key::Char('b') => {
-                // Toggle bookmark state.
-                article.toggle_bookmark(base_dir)?;
-                error_message = String::new();
-            }
             Key::Char('u') => {
                 // Toggle latex-to-unicode.
                 latex_to_unicode = !latex_to_unicode;
+                error_message = String::new();
             }
             Key::End if update_filter.is_none() => {
                 state = Current::Read(seen.len() - 1);
@@ -394,6 +403,15 @@ pub fn interact(
                     }
                 };
                 error_message = String::new();
+            }
+            Key::Char(c) => {
+                for (shortcut, name) in &config.tags {
+                    if c == *shortcut {
+                        // Toggle tag.
+                        article.toggle_tag(base_dir, name)?;
+                        error_message = String::new();
+                    }
+                }
             }
             _ => {}
         }

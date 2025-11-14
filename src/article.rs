@@ -1,8 +1,8 @@
 use std::{
-    collections::HashMap,
-    ffi::{OsStr, OsString},
+    collections::{BTreeSet, HashMap},
+    ffi::OsStr,
     fmt::Display,
-    fs::{File, create_dir, read_link, remove_file},
+    fs::{File, create_dir},
     io::{BufRead, BufReader, ErrorKind, Read, Write},
     path::{Path, PathBuf},
     process::Command,
@@ -16,7 +16,7 @@ use rusqlite::{Row, Transaction, params};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    config::Highlight,
+    config::{Highlight, TagName},
     rate_limited_client::Client,
     util::{highlight_matches, read_if_exists, write_then_rename},
 };
@@ -126,6 +126,14 @@ impl ArxivId {
     /// The data directory for this id.
     pub fn directory(&self, base_dir: &Path) -> PathBuf {
         base_dir.join("articles").join(self.dir_name())
+    }
+    /// Create the article directory if it doesn't exist.
+    pub fn mkdir(&self, base_dir: &Path) -> anyhow::Result<()> {
+        let path = self.directory(base_dir);
+        if !path.is_dir() {
+            create_dir(&path).with_context(|| format!("creating {path:?}"))?;
+        }
+        Ok(())
     }
 }
 
@@ -305,8 +313,8 @@ pub struct ArticleState {
     last_seen_version: u32,
     seen_journal: bool,
     seen_doi: bool,
-    /// The names of the bookmark symlinks, relative to the bookmarks directory.
-    bookmarks: Vec<OsString>,
+    /// The names of the bookmark symlinks, relative to the tag directory.
+    tags: BTreeSet<TagName>,
     notes: Option<String>,
 }
 
@@ -317,9 +325,23 @@ impl ArticleState {
             last_seen_version: 0,
             seen_journal: false,
             seen_doi: false,
-            bookmarks: Vec::new(),
+            tags: BTreeSet::new(),
             notes: None,
         }
+    }
+
+    fn get_tags(base_dir: &Path, id: &ArxivId) -> anyhow::Result<BTreeSet<TagName>> {
+        read_if_exists(id.directory(base_dir).join("tags"), |reader| {
+            let mut res = BTreeSet::new();
+            for line in reader.lines() {
+                let line = line?;
+                let tag: TagName = line.parse()?;
+                res.insert(tag);
+            }
+            Ok(res)
+        })
+        .map(|r| r.unwrap_or_default())
+        .with_context(|| format!("reading tags for {}", id))
     }
 
     fn get_notes(base_dir: &Path, id: &ArxivId) -> anyhow::Result<Option<String>> {
@@ -431,11 +453,11 @@ impl Article {
     }
 
     pub fn is_bookmarked(&self) -> bool {
-        !self.state.bookmarks.is_empty()
+        !self.state.tags.is_empty()
     }
 
-    pub fn bookmarks(&self) -> &Vec<OsString> {
-        &self.state.bookmarks
+    pub fn tags(&self) -> &BTreeSet<TagName> {
+        &self.state.tags
     }
 
     pub fn notes(&self) -> Option<&String> {
@@ -495,39 +517,7 @@ impl Article {
             }
         }
 
-        // Read all bookmark symlinks.
-        for dir_entry in
-            std::fs::read_dir(base_dir.join("bookmarks")).context("reading bookmarks directory")?
-        {
-            let dir_entry = dir_entry.context("reading bookmarks directory")?;
-            if !dir_entry
-                .file_type()
-                .context("reading bookmarks directory")?
-                .is_symlink()
-            {
-                bail!("non-symlink in bookmarks folder: {:?}", dir_entry.path());
-            }
-            let target = read_link(dir_entry.path())
-                .with_context(|| format!("reading symlink {:?}", dir_entry.path()))?;
-            let target_dirname = if target.parent() == Some(Path::new("../articles")) {
-                target.file_name()
-            } else {
-                None
-            };
-            let id = target_dirname
-                .and_then(ArxivId::from_os_dir_name)
-                .with_context(|| format!("invalid target: {target:?}"))
-                .with_context(|| format!("parsing symlink {:?}", dir_entry.path()))?;
-            if let Some(article) = articles.get_mut(&id) {
-                article.state.bookmarks.push(dir_entry.file_name());
-            }
-        }
-        for article in articles.values_mut() {
-            // Sort bookmarks by file name.
-            article.state.bookmarks.sort();
-        }
-
-        // Read notes. For efficiency, we don't try to load notes for each article,
+        // Read tags and notes. For efficiency, we don't try to load tags and notes for each article,
         // but only for those that have a directory.
         for dir_entry in
             std::fs::read_dir(base_dir.join("articles")).context("reading articles directory")?
@@ -537,6 +527,7 @@ impl Article {
             let id = ArxivId::from_os_dir_name(&id)
                 .with_context(|| "invalid article directory: {id:?}")?;
             if let Some(article) = articles.get_mut(&id) {
+                article.state.tags = ArticleState::get_tags(base_dir, &id)?;
                 article.state.notes = ArticleState::get_notes(base_dir, &id)?;
             }
         }
@@ -585,40 +576,31 @@ impl Article {
         Ok(())
     }
 
-    pub fn toggle_bookmark(&mut self, base_dir: &Path) -> anyhow::Result<()> {
-        let id = &self.metadata.id;
-        if !self.state.bookmarks.is_empty() {
-            for filename in self.state.bookmarks.iter() {
-                let bookmark_file = base_dir.join("bookmarks").join(filename);
-                remove_file(&bookmark_file)
-                    .with_context(|| format!("removing bookmark file {:?}", bookmark_file))?;
+    fn write_tags(&self, base_dir: &Path) -> anyhow::Result<()> {
+        let id = self.id();
+        write_then_rename(id.directory(base_dir).join("tags"), |writer| {
+            for tag in &self.state.tags {
+                writeln!(writer, "{tag}").context("writing tag")?;
             }
-            self.state.bookmarks.clear();
+            Ok(())
+        })
+        .with_context(|| format!("writing tags for {id}"))?;
+        Ok(())
+    }
+
+    pub fn toggle_tag(&mut self, base_dir: &Path, tag_name: &TagName) -> anyhow::Result<()> {
+        if self.state.tags.contains(tag_name) {
+            self.state.tags.remove(tag_name);
         } else {
-            let bookmark_file = base_dir.join("bookmarks").join(id.dir_name());
-            std::os::unix::fs::symlink(
-                Path::new("../articles").join(id.dir_name()),
-                &bookmark_file,
-            )
-            .with_context(|| format!("creating bookmark file {:?}", bookmark_file))?;
-            self.state.bookmarks.push(id.dir_name().into());
+            self.state.tags.insert(tag_name.clone());
         }
-        Ok(())
+        self.write_tags(base_dir)
     }
 
-    pub fn set_bookmark(&mut self, base_dir: &Path, name: &OsString) -> anyhow::Result<()> {
-        let id = &self.metadata.id;
-        let bookmark_file = base_dir.join("bookmarks").join(name);
-        std::os::unix::fs::symlink(Path::new("../articles").join(id.dir_name()), &bookmark_file)
-            .with_context(|| format!("creating bookmark file {:?}", bookmark_file))?;
-        Ok(())
-    }
-
-    /// Create the article directory if it doesn't exist.
-    fn mkdir(&self, base_dir: &Path) -> anyhow::Result<()> {
-        let path = self.id().directory(base_dir);
-        if !path.is_dir() {
-            create_dir(&path).with_context(|| format!("creating {path:?}"))?;
+    pub fn set_tag(&mut self, base_dir: &Path, tag_name: &TagName) -> anyhow::Result<()> {
+        if !self.state.tags.contains(tag_name) {
+            self.state.tags.insert(tag_name.clone());
+            self.write_tags(base_dir)?;
         }
         Ok(())
     }
@@ -686,7 +668,7 @@ impl Article {
 
     /// Download the pdf file if necessary.
     pub fn download_pdf(&self, base_dir: &Path, client: &mut Client) -> anyhow::Result<()> {
-        self.mkdir(base_dir)?;
+        self.id().mkdir(base_dir)?;
         self.download_content(
             client,
             self.pdf_path(base_dir),
@@ -704,7 +686,7 @@ impl Article {
 
     /// Download the src file if necessary.
     pub fn download_src(&self, base_dir: &Path, client: &mut Client) -> anyhow::Result<()> {
-        self.mkdir(base_dir)?;
+        self.id().mkdir(base_dir)?;
         self.download_content(
             client,
             self.src_path(base_dir),
@@ -740,7 +722,7 @@ impl Article {
 
     /// Open the data directory for this article.
     pub fn open_dir(&self, base_dir: &Path) -> anyhow::Result<()> {
-        self.mkdir(base_dir)?;
+        self.id().mkdir(base_dir)?;
         let status = Command::new("xdg-open")
             .arg(self.id().directory(base_dir))
             .output()?
@@ -757,7 +739,7 @@ impl Article {
 
     /// Open notes file in the default editor.
     pub fn edit_notes(&mut self, base_dir: &Path) -> anyhow::Result<()> {
-        self.mkdir(base_dir)?;
+        self.id().mkdir(base_dir)?;
         let editor = std::env::var_os("EDITOR").unwrap_or_else(|| "vi".to_string().into());
         let status = Command::new(editor)
             .arg(self.notes_file(base_dir))
@@ -865,8 +847,8 @@ impl Article {
         );
         println!();
         println!("------------------------------------------------------------------");
-        for bookmark in self.bookmarks() {
-            println!("Bookmark: {}", bookmark.display());
+        for tag_name in self.tags() {
+            println!("Tag: {tag_name}");
         }
         println!();
         if let Some(notes) = self.notes() {

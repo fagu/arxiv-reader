@@ -12,6 +12,10 @@
 # Whether we should try to display latex as unicode by default.
 latex_to_unicode = true
 
+# Define your own tags and their corresponding keyboard shortcuts.
+# Any tagged article is considered "bookmarked".
+tags = [['0', "fascinating"], ['1', "curious"], ['8', "skimmed"], ['9', "read"]]
+
 [filters]
 # Only show new articles matching the following criteria (mandatory).
 # Replace the date after first_version_encountered_after by the day you want to start

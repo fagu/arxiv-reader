@@ -144,7 +144,7 @@ pub fn download_changes(
     loop {
         // We start a new transaction on each request.
         // This way, intermediate progress will be saved.
-        let continue_ = db::with_write_transaction(conn, |tr| {
+        let continue_ = db::with_write_transaction(conn, base_dir, |tr| {
             // Find the name of the set corresponding to this category.
             let set = if let Some(set) = Continuation::set_for_category(&tr, category)? {
                 set

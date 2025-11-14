@@ -1,11 +1,45 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, fmt::Display, str::FromStr};
 
+use anyhow::bail;
 use serde::Deserialize;
 
 use crate::filter::Filter;
 
 fn true_fn() -> bool {
     true
+}
+
+#[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone)]
+pub struct TagName(pub String);
+
+impl FromStr for TagName {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let valid_first_chars = |c: char| c.is_ascii_alphanumeric();
+        let valid_chars = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '-';
+        if s.chars().next().is_some_and(valid_first_chars) && s.chars().all(valid_chars) {
+            Ok(Self(s.to_string()))
+        } else {
+            bail!("invalid tag name: {:?}", s)
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for TagName {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        s.parse().map_err(serde::de::Error::custom)
+    }
+}
+
+impl Display for TagName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
 }
 
 #[derive(Deserialize)]
@@ -15,6 +49,8 @@ pub struct Config {
     pub categories: Vec<String>,
     #[serde(default = "true_fn")]
     pub latex_to_unicode: bool,
+    #[serde(default)]
+    pub tags: Vec<(char, TagName)>,
     pub filters: Filters,
     #[serde(default)]
     pub hooks: Hooks,

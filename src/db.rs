@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
-    io::{stdin, stdout},
+    fs::{read_link, remove_dir, remove_file},
+    io::{Write, stdin, stdout},
     path::Path,
 };
 
@@ -8,7 +9,11 @@ use anyhow::{Context, bail};
 use rusqlite::{Connection, Row, Transaction, params};
 use serde::{Deserialize, Serialize};
 
-use crate::{article::ArticleMetadata, oai::Continuation};
+use crate::{
+    article::{ArticleMetadata, ArxivId},
+    oai::Continuation,
+    util::write_then_rename,
+};
 
 pub fn open(base_dir: &Path) -> anyhow::Result<Connection> {
     let db_path = base_dir.join("db.sqlite");
@@ -42,7 +47,7 @@ pub fn create(base_dir: &Path) -> anyhow::Result<()> {
     tr.execute("INSERT INTO db_version (version) VALUES (?1)", params!["1"])?;
     tr.commit()?;
     // Upgrade the database schema.
-    with_transaction(&mut conn, |_| Ok(()))?;
+    with_transaction(&mut conn, base_dir, |_| Ok(()))?;
     Ok(())
 }
 
@@ -53,11 +58,12 @@ pub fn create(base_dir: &Path) -> anyhow::Result<()> {
 /// We use a callback instead of simply returning a Transaction to avoid lifetime issues.
 pub fn with_transaction<T, F: FnOnce(Transaction) -> anyhow::Result<T>>(
     conn: &mut Connection,
+    base_dir: &Path,
     f: F,
 ) -> anyhow::Result<T> {
     loop {
         let tr = conn.transaction()?;
-        if let Some(tr) = upgrade_step(tr)? {
+        if let Some(tr) = upgrade_step(tr, base_dir)? {
             return f(tr);
         }
     }
@@ -66,11 +72,12 @@ pub fn with_transaction<T, F: FnOnce(Transaction) -> anyhow::Result<T>>(
 /// Like `with_transaction`, but creates a transaction of IMMEDIATE type.
 pub fn with_write_transaction<T, F: FnOnce(Transaction) -> anyhow::Result<T>>(
     conn: &mut Connection,
+    base_dir: &Path,
     f: F,
 ) -> anyhow::Result<T> {
     loop {
         let tr = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-        if let Some(tr) = upgrade_step(tr)? {
+        if let Some(tr) = upgrade_step(tr, base_dir)? {
             return f(tr);
         }
     }
@@ -83,7 +90,10 @@ fn get_version(conn: &Connection) -> anyhow::Result<String> {
 
 /// Upgrades the database schema by one step if necessary.
 /// Returns Ok(None) if the database had to be upgraded and Ok(tr) otherwise.
-fn upgrade_step(tr: Transaction) -> anyhow::Result<Option<Transaction>> {
+fn upgrade_step<'c>(
+    tr: Transaction<'c>,
+    base_dir: &Path,
+) -> anyhow::Result<Option<Transaction<'c>>> {
     let old_version = get_version(&tr)?;
     let new_version = match old_version.as_str() {
         "1" => {
@@ -117,6 +127,45 @@ fn upgrade_step(tr: Transaction) -> anyhow::Result<Option<Transaction>> {
             "4"
         }
         "4" => {
+            let bookmarks_dir = base_dir.join("bookmarks");
+            if bookmarks_dir.exists() {
+                for dir_entry in
+                    std::fs::read_dir(&bookmarks_dir).context("reading bookmarks directory")?
+                {
+                    let dir_entry = dir_entry.context("reading bookmarks directory")?;
+                    if !dir_entry
+                        .file_type()
+                        .context("reading bookmarks directory")?
+                        .is_symlink()
+                    {
+                        bail!("non-symlink in tags folder: {:?}", dir_entry.path());
+                    }
+                    let path = dir_entry.path();
+                    let target =
+                        read_link(&path).with_context(|| format!("reading symlink {path:?}"))?;
+                    let target_dirname = if target.parent() == Some(Path::new("../articles")) {
+                        target.file_name()
+                    } else {
+                        None
+                    };
+                    let id = target_dirname
+                        .and_then(ArxivId::from_os_dir_name)
+                        .with_context(|| format!("invalid target: {target:?}"))
+                        .with_context(|| format!("parsing symlink {:?}", dir_entry.path()))?;
+                    id.mkdir(base_dir)?;
+                    let tags_file = id.directory(base_dir).join("tags");
+                    write_then_rename(tags_file.clone(), |w| {
+                        writeln!(w, "bookmarked").context("writing")
+                    })
+                    .with_context(|| format!("writing {tags_file:?}"))?;
+                    remove_file(&path).with_context(|| format!("removing {path:?}"))?;
+                }
+                remove_dir(&bookmarks_dir)
+                    .with_context(|| format!("removing {bookmarks_dir:?}"))?;
+            }
+            "5"
+        }
+        "5" => {
             return Ok(Some(tr));
         }
         _ => {
