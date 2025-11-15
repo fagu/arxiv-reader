@@ -3,13 +3,18 @@ use std::{
     collections::VecDeque,
     fs::File,
     io::{Write, stdin, stdout},
+    panic::{set_hook, take_hook},
     path::Path,
 };
 
 use anyhow::Context;
 use rusqlite::Transaction;
 use termion::{
-    cursor::HideCursor, event::Key, input::TermRead, raw::IntoRawMode, screen::IntoAlternateScreen,
+    cursor::HideCursor,
+    event::Key,
+    input::TermRead,
+    raw::IntoRawMode,
+    screen::{IntoAlternateScreen, ToMainScreen},
 };
 
 use crate::{
@@ -19,6 +24,20 @@ use crate::{
     filter::Filter,
     rate_limited_client::Client,
 };
+
+pub fn init_panic_hook() -> anyhow::Result<()> {
+    let screen = stdout().into_raw_mode()?;
+    screen.suspend_raw_mode()?;
+
+    let original_hook = take_hook();
+    set_hook(Box::new(move |panic_info| {
+        let _ = screen.suspend_raw_mode();
+        let _ = write!(stdout(), "{}", ToMainScreen);
+        let _ = stdout().flush();
+        original_hook(panic_info);
+    }));
+    Ok(())
+}
 
 /// Interactively show one article at a time.
 ///
@@ -117,6 +136,7 @@ pub fn interact(
     let mut latex_to_unicode = latex_to_unicode;
     let mut error_message = String::new();
 
+    init_panic_hook().context("initializing panic hook")?;
     let screen = stdout().into_raw_mode()?.into_alternate_screen()?;
     // Suspend raw mode as it interferes with printing.
     screen.suspend_raw_mode()?;
