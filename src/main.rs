@@ -299,7 +299,7 @@ fn inner_main() -> anyhow::Result<()> {
             // Update article metadata.
             for categories in &config.categories {
                 println!("Getting records in category {categories}.");
-                oai::download_changes(&base_dir, &mut conn, &categories, &mut client)?;
+                oai::download_changes(&base_dir, &mut conn, categories, &mut client)?;
             }
             // Download pdfs and sources for all bookmarked articles.
             db::with_transaction(&mut conn, &base_dir, |tr| {

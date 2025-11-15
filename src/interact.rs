@@ -45,6 +45,7 @@ pub fn init_panic_hook() -> anyhow::Result<()> {
 /// If update_filter is Some(...), it means that we are reading new
 /// articles, which will be marked as seen. The update_filter specifies
 /// for which articles we also want to see updates (new versions, etc.).
+#[allow(clippy::too_many_arguments)]
 pub fn interact(
     base_dir: &Path,
     conn: &Transaction,

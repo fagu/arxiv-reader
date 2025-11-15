@@ -63,7 +63,7 @@ impl Continuation {
                     None => None,
                 };
                 Ok(Continuation {
-                    last_update: last_update,
+                    last_update,
                     resumption_data,
                 })
             }
@@ -384,14 +384,14 @@ pub fn download_changes(
                 // Write the resumption data in case of problems with the next request.
                 Continuation::update_resumption_data(&tr, &set, &resumption_data)?;
                 tr.commit()?;
-                return Ok(true);
+                Ok(true)
             } else {
                 // Clear the resumption data as we are done.
                 // Save the date of the first response. Only changes on or after this
                 // date need to be taken into account in later requests.
                 Continuation::update_last_update(&tr, &set, response_date)?;
                 tr.commit()?;
-                return Ok(false);
+                Ok(false)
             }
         })?;
         if !continue_ {
