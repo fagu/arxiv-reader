@@ -5,10 +5,6 @@ use serde::Deserialize;
 
 use crate::filter::Filter;
 
-fn true_fn() -> bool {
-    true
-}
-
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub struct TagName(pub String);
 
@@ -47,7 +43,7 @@ impl Display for TagName {
 pub struct Config {
     /// Which categories to subscribe to. See https://arxiv.org/category_taxonomy for a list of all categories.
     pub categories: Vec<String>,
-    #[serde(default = "true_fn")]
+    #[serde(default)]
     pub latex_to_unicode: bool,
     #[serde(default)]
     pub tags: Vec<(char, TagName)>,
