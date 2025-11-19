@@ -578,6 +578,7 @@ impl Article {
 
     fn write_tags(&self, base_dir: &Path) -> anyhow::Result<()> {
         let id = self.id();
+        id.mkdir(base_dir)?;
         write_then_rename(id.directory(base_dir).join("tags"), |writer| {
             for tag in &self.state.tags {
                 writeln!(writer, "{tag}").context("writing tag")?;
