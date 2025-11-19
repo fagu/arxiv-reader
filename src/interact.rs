@@ -232,7 +232,6 @@ pub fn interact(
             "[p] open pdf",
             "[d] open directory",
             "[n] edit notes",
-            "[b] toggle bookmark",
             "[u] turn on/off latex-to-unicode",
             "[RIGHT] next article",
             "[LEFT] previous article",
