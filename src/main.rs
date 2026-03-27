@@ -57,6 +57,8 @@ enum Commands {
         sort_by: Order,
         #[command(flatten, next_help_heading = "Patterns")]
         filters: Filters,
+        #[arg(long)]
+        set_tag: Option<TagName>,
     },
     /// Interact with a bibtex file.
     #[command(subcommand)]
@@ -321,6 +323,7 @@ fn inner_main() -> anyhow::Result<()> {
             filters,
             sort_by,
             show: do_,
+            set_tag,
         } => {
             let (base_dir, config, mut client) = prepare()?;
             db::with_transaction(&mut db::open(&base_dir)?, &base_dir, |conn| {
@@ -329,6 +332,9 @@ fn inner_main() -> anyhow::Result<()> {
                     filter = Filter::And(Box::new(filter), Box::new(Filter::Seen));
                 }
                 if let LsFormat::Int = do_ {
+                    if set_tag.is_some() {
+                        bail!("--set-tag is incompatible with -s int");
+                    }
                     interact::interact(
                         &base_dir,
                         &conn,
@@ -364,11 +370,11 @@ fn inner_main() -> anyhow::Result<()> {
                         }
                     }
                     fn do_for_one(
-                        articles: &[Article],
-                        f: impl FnOnce(&Article) -> anyhow::Result<()>,
+                        articles: &mut [Article],
+                        f: impl FnOnce(&mut Article) -> anyhow::Result<()>,
                     ) -> anyhow::Result<()> {
                         if articles.len() == 1 {
-                            f(&articles[0])
+                            f(&mut articles[0])
                         } else if articles.is_empty() {
                             println!("No articles found.");
                             Ok(())
@@ -403,17 +409,31 @@ fn inner_main() -> anyhow::Result<()> {
                         }
                         LsFormat::Int => panic!("logic error"),
                         LsFormat::Pdf => {
-                            do_for_one(&articles, |article| {
+                            do_for_one(&mut articles, |article| {
                                 article.download_pdf(&base_dir, &mut client)?;
                                 article.open_pdf(&base_dir)
                             })?;
                         }
                         LsFormat::Dir => {
-                            do_for_one(&articles, |article| article.open_dir(&base_dir))?;
+                            do_for_one(&mut articles, |article| article.open_dir(&base_dir))?;
                         }
                         LsFormat::Web => {
-                            do_for_one(&articles, |article| article.open_abs())?;
+                            do_for_one(&mut articles, |article| article.open_abs())?;
                         }
+                    }
+                    if let Some(tag_name) = set_tag {
+                        if !config.tags.iter().any(|(_, name)| name == &tag_name) {
+                            bail!("There is no tag named {:?}.", tag_name.0);
+                        }
+                        do_for_one(&mut articles, |article| {
+                            if !article.tags().contains(&tag_name) {
+                                article.toggle_tag(&base_dir, &tag_name)
+                            } else {
+                                Ok(())
+                            }
+                        })?;
+                        // Run the push command in case some article's state was changed.
+                        run_push_command(&base_dir, &config)?;
                     }
                 }
                 Ok(())
