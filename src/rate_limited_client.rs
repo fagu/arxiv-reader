@@ -9,7 +9,7 @@ impl Client {
     pub fn new() -> Self {
         Self {
             last_request: None,
-            inner: reqwest::blocking::Client::new(),
+            inner: reqwest::blocking::Client::builder().timeout(None).build().expect("could not construct client"),
         }
     }
 
